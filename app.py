@@ -15,7 +15,7 @@ basedir = os.path.abspath(os.path.dirname(__file__))  # 获取当前运行文件
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'hard to guess string'
 app.config['SQLALCHEMY_DATABASE_URI'] =\
-'sqlite:///' + os.path.join(basedir, 'data.sqlite')
+    'sqlite:///' + os.path.join(basedir, 'data.sqlite')
 app.config['SQLALCHEMY_COMMIT_ON_TEARDOWN'] = True  # 该配置为True,则每次请求结束都会自动commit数据库的变动
 
 
@@ -35,20 +35,25 @@ class NameForm(FlaskForm):
 class Role(db.Model):
     __tablename__ = 'roles'  # 类变量 __tablename__ 定义在数据库中使用的表名
     id = db.Column(db.Integer, primary_key=True)  # Flask-SQLAlchemy 要求每个模型都要定义主键,这一列经常命名为 id
-    name = db.Column(db.String(64),unique=True)
-    users = db.relationship
+    name = db.Column(db.String(64), unique=True)
+    # backref定义反向关系,这一属性可替代 role_id 访问 Role 模型，此时获取的是模型对象，而不是外键的值
+    # lazy = 'dynamic' 参数，禁止自动执行查询
+    users = db.relationship('User', backref='role', lazy='dynamic')
 
     def __repr__(self):  # 返回一个具有可读性的字符串表示模型,可在调试和测试时使用。
-        return '<Role %r>'%self.name  # %r用rper()方法处理对象,%s用str()方法处理对象
+        return '<Role %r>' % self.name  # %r用rper()方法处理对象,%s用str()方法处理对象
 
 
 class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(64), unique=True)
+    # role_id被定义为外键,传给db.ForeignKey()的参数'roles.id'表明,这列的值是roles表中行的id值
+    role_id = db.Column(db.Integer, db.ForeignKey('roles.id'))
 
     def __repr__(self):
         return '<User %r>'%self.username
+
 
 @app.errorhandler(404)
 def page_not_found(e):
@@ -69,12 +74,21 @@ def index():
         old_name = session.get('name')
         if old_name is not None and old_name != form.name.data:
             flash('Looks like you have changed your name!')
+        user = User.query.filter_by(username=form.name.data).first()
+        if user is None:
+            user = User(username=form.name.data)
+            db.session.add(user)
+            session['known'] = False
+        else:
+            session['known'] = True
         session['name'] = form.name.data  # 用户的输入可通过字段的 data 属性获取
+        form.name.data = ''
         return redirect(url_for('index'))
     return render_template('index.html',
                            form=form,
                            name=session.get('name'),
-                           current_time=datetime.utcnow()
+                           current_time=datetime.utcnow(),
+                           known=session.get('known', False)
                            )
 """
 程序可以把数据存储在用户会话中，在请求之间“记住”数据。用户会话是一种私有存
@@ -84,4 +98,5 @@ def index():
 """
 
 if __name__ == '__main__':
-	app.run(debug=True)
+    app.run(debug=True)
+
