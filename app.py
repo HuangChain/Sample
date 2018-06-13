@@ -4,6 +4,7 @@ from flask_bootstrap import Bootstrap
 from flask_moment import Moment
 from flask_wtf import FlaskForm
 from flask_sqlalchemy import SQLAlchemy
+from flask_script import Manager,Shell
 from wtforms import StringField, SubmitField, PasswordField
 from wtforms.validators import DataRequired, Length
 
@@ -20,6 +21,7 @@ app.config['SQLALCHEMY_COMMIT_ON_TEARDOWN'] = True  # 该配置为True,则每次
 
 
 bootstrap = Bootstrap(app)
+manager = Manager(app)
 moment = Moment(app)
 db = SQLAlchemy(app)  # db 对象是 SQLAlchemy 类的实例,表示程序使用的数据库
 
@@ -90,12 +92,19 @@ def index():
                            current_time=datetime.utcnow(),
                            known=session.get('known', False)
                            )
+    # 若没有设置它的值就返回get('known', False)默认值False
 """
 程序可以把数据存储在用户会话中，在请求之间“记住”数据。用户会话是一种私有存
 储，存在于每个连接到服务器的客户端中.
 默认情况下，用户会话保存在客户端 cookie 中，使用设置的 SECRET_KEY 进
 行加密签名。如果篡改了 cookie 中的内容，签名就会失效，会话也会随之失效
 """
+# make_shell_context() 函数注册了程序、数据库实例以及模型,因此这些对象能直接导入 shell
+def make_shell_context():
+    return dict(app=app, db=db, User=User, Role =Role)
+# 为shell命令添加一个上下文，make_context参数必须是一个返回字典的可调用对象，默认情况下，这只是一个返回Flask应用程序实例的字典
+manager.add_command('shell',Shell(make_context=make_shell_context()))
+
 
 if __name__ == '__main__':
     app.run(debug=True)
