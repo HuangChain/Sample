@@ -5,10 +5,13 @@ from flask_moment import Moment
 from flask_wtf import FlaskForm
 from flask_sqlalchemy import SQLAlchemy
 from flask_script import Manager,Shell
+from flask_migrate import Migrate, MigrateCommand
+from flask_mail import Mail, Message
 from wtforms import StringField, SubmitField, PasswordField
 from wtforms.validators import DataRequired, Length
 
 from datetime import datetime
+from threading import Thread
 import os
 
 basedir = os.path.abspath(os.path.dirname(__file__))  # 获取当前运行文件路径
@@ -17,14 +20,27 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'hard to guess string'
 app.config['SQLALCHEMY_DATABASE_URI'] =\
     'sqlite:///' + os.path.join(basedir, 'data.sqlite')
-app.config['SQLALCHEMY_COMMIT_ON_TEARDOWN'] = True  # 该配置为True,则每次请求结束都会自动commit数据库的变动
+app.config['SQLALCHEMY_COMMIT_TEARDOWN'] = True  # 该配置为True,则每次请求结束都会自动commit数据库的变动
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False  # 不需要使用TLS
+
+
+app.config['MAIL_DEBUG'] = True             # 开启debug，便于调试看信息
+app.config['MAIL_SUPPRESS_SEND'] = False    # 发送邮件，为True则不发送
+app.config['MAIL_SERVER'] = 'smtp.qq.com'
+app.config['MAIL_PORT'] = 465
+app.config['MAIL_USE_SSL'] = True  #重要，qq邮箱需要使用SSL
+app.config['MAIL_USE_TLS'] = False
+app.config['MAIL_USERNAME'] = '1241908493@qq.com'
+app.config['MAIL_PASSWORD'] = 'ocvcfuajjxdujbdg'
 
 
 bootstrap = Bootstrap(app)
 manager = Manager(app)
 moment = Moment(app)
 db = SQLAlchemy(app)  # db 对象是 SQLAlchemy 类的实例,表示程序使用的数据库
-
+migrate = Migrate(app, db)
+manager.add_command('db', MigrateCommand)
+mail = Mail(app)
 
 class NameForm(FlaskForm):
     name = StringField('What is your name?', validators=[DataRequired()])
@@ -49,7 +65,7 @@ class Role(db.Model):
 class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(64), unique=True)
+    username = db.Column(db.String(64), unique=True, index=True)  # index=True为这列创建索引，提升查询效率quit
     # role_id被定义为外键,传给db.ForeignKey()的参数'roles.id'表明,这列的值是roles表中行的id值
     role_id = db.Column(db.Integer, db.ForeignKey('roles.id'))
 
@@ -80,9 +96,10 @@ def index():
         if user is None:
             user = User(username=form.name.data)
             db.session.add(user)
-            session['known'] = False
+            session['known'] = False  # 表示换了个user登陆
         else:
             session['known'] = True
+        send_email()
         session['name'] = form.name.data  # 用户的输入可通过字段的 data 属性获取
         form.name.data = ''
         return redirect(url_for('index'))
@@ -103,9 +120,32 @@ def index():
 def make_shell_context():
     return dict(app=app, db=db, User=User, Role =Role)
 # 为shell命令添加一个上下文，make_context参数必须是一个返回字典的可调用对象，默认情况下，这只是一个返回Flask应用程序实例的字典
-manager.add_command('shell',Shell(make_context=make_shell_context()))
+# make_shell_context()函数注册了程序、数据库实例以及模型,因此这些对象能直接导入shell
+manager.add_command('shell',Shell(make_context=make_shell_context))
+
+
+def send_email():
+    msg = Message(subject="Hello World!",
+                  sender='1241908493@qq.com',
+                  recipients=["1430250645@qq.com"])
+    msg.body = "testing"
+    msg.html = "<b>testing</b>"
+    thr = Thread(target=send_async_email, args=[app, msg])
+    thr.start()
+    return thr
+
+
+# 异步发送邮件
+def send_async_email(app, msg):
+    """
+    这里的with语句和** with open() as f一样，是Python提供的语法糖，可以为提供上下文环境省略简化一部分工作。
+    这里就简化了其压栈和出栈操作，请求线程创建时，Flask会创建应用上下文对象，
+    并将其压入flask._app_ctx_stack**的栈中，然后在线程退出前将其从栈里弹出。
+    """
+    with app.app_context():  # 手动创建应用上下文
+        mail.send(msg)
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    manager.run()
 
